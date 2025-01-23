@@ -1,0 +1,10 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /todo-images/{allImages=**} {
+      // Allow read and write access to todo images
+      allow read, write: if true;
+    }
+  }
+}

@@ -1,6 +1,8 @@
 import { Todo, Priority, Category } from '@/types/todo';
-import { useState, useEffect } from 'react';
-import { CheckCircle2, Pencil } from "lucide-react";
+import { useState, useEffect, useRef } from 'react';
+import { CheckCircle2, Pencil, X, Image as ImageIcon } from "lucide-react";
+import { storage } from '@/lib/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 interface TodoItemProps {
   todo: Todo;
@@ -18,6 +20,9 @@ export default function TodoItem({ todo, onToggle, onDelete, onEdit }: TodoItemP
     todo.deadline ? new Date(todo.deadline).toISOString().split('T')[0] : ''
   );
   const [editedImageUrl, setEditedImageUrl] = useState<string | undefined>(todo.imageUrl);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(todo.imageUrl || null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setEditedTitle(todo.title);
@@ -25,23 +30,66 @@ export default function TodoItem({ todo, onToggle, onDelete, onEdit }: TodoItemP
     setEditedPriority(todo.priority);
     setEditedDeadline(todo.deadline ? new Date(todo.deadline).toISOString().split('T')[0] : '');
     setEditedImageUrl(todo.imageUrl);
+    setImagePreview(todo.imageUrl || null);
   }, [todo]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (editedTitle.trim()) {
-      const updates: Partial<Todo> = {
-        title: editedTitle.trim()
-      };
+  const uploadImage = async (file: File): Promise<string> => {
+    const storageRef = ref(storage, `todo-images/${Date.now()}-${file.name}`);
+    try {
+      await uploadBytes(storageRef, file);
+      const downloadUrl = await getDownloadURL(storageRef);
+      return downloadUrl;
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      throw new Error('Failed to upload image');
+    }
+  };
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+        alert('Image size must be less than 5MB');
+        return;
+      }
+      setSelectedImage(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleImageRemove = () => {
+    setSelectedImage(null);
+    setImagePreview(null);
+    setEditedImageUrl(undefined);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editedTitle.trim()) return;
+
+    try {
+      const updates: Partial<Todo> = { title: editedTitle.trim() };
       if (editedCategory) updates.category = editedCategory;
       if (editedPriority) updates.priority = editedPriority;
       if (editedDeadline) updates.deadline = editedDeadline;
-      if (editedImageUrl) updates.imageUrl = editedImageUrl;
 
-      console.log('Submitting edit with:', updates);
+      if (selectedImage) {
+        updates.imageUrl = await uploadImage(selectedImage);
+      } else if (imagePreview === null) {
+        updates.imageUrl = undefined; // Remove image if it was deleted
+      }
+
       onEdit(todo.id, updates);
       setIsEditing(false);
+    } catch (error) {
+      console.error('Error updating todo:', error);
     }
   };
 
@@ -50,6 +98,8 @@ export default function TodoItem({ todo, onToggle, onDelete, onEdit }: TodoItemP
     setEditedCategory(todo.category);
     setEditedPriority(todo.priority);
     setEditedDeadline(todo.deadline ? new Date(todo.deadline).toISOString().split('T')[0] : '');
+    setSelectedImage(null);
+    setImagePreview(todo.imageUrl || null);
     setEditedImageUrl(todo.imageUrl);
     setIsEditing(false);
   };
@@ -73,79 +123,109 @@ export default function TodoItem({ todo, onToggle, onDelete, onEdit }: TodoItemP
 
   if (isEditing) {
     return (
-      <div className="group rounded-xl border border-gray-200/50 bg-white/60 backdrop-blur-sm p-5 shadow-sm">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            type="text"
-            value={editedTitle}
-            onChange={(e) => setEditedTitle(e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            autoFocus
-          />
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Category (optional)</label>
-              <select
-                value={editedCategory || ''}
-                onChange={(e) => setEditedCategory(e.target.value ? e.target.value as Category : undefined)}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="">No category</option>
-                <option value="work">Work</option>
-                <option value="personal">Personal</option>
-                <option value="shopping">Shopping</option>
-                <option value="health">Health</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Priority (optional)</label>
-              <select
-                value={editedPriority || ''}
-                onChange={(e) => setEditedPriority(e.target.value ? e.target.value as Priority : undefined)}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="">No priority</option>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Deadline (optional)</label>
-              <input
-                type="date"
-                value={editedDeadline}
-                onChange={(e) => setEditedDeadline(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Image URL (optional)</label>
+      <div className="space-y-4 p-6 rounded-xl border border-gray-200/50 bg-white/60 backdrop-blur-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="sm:col-span-3">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
             <input
               type="text"
-              value={editedImageUrl || ''}
-              onChange={(e) => setEditedImageUrl(e.target.value)}
+              value={editedTitle}
+              onChange={(e) => setEditedTitle(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Category (optional)</label>
+            <select
+              value={editedCategory || ''}
+              onChange={(e) => setEditedCategory(e.target.value ? e.target.value as Category : undefined)}
+              className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="">No category</option>
+              <option value="work">Work</option>
+              <option value="personal">Personal</option>
+              <option value="shopping">Shopping</option>
+              <option value="health">Health</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Priority (optional)</label>
+            <select
+              value={editedPriority || ''}
+              onChange={(e) => setEditedPriority(e.target.value ? e.target.value as Priority : undefined)}
+              className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="">No priority</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Deadline (optional)</label>
+            <input
+              type="date"
+              value={editedDeadline}
+              onChange={(e) => setEditedDeadline(e.target.value)}
               className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
-          <div className="flex gap-2">
-            <button
-              type="submit"
-              className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-            >
-              Save
-            </button>
-            <button
-              type="button"
-              onClick={handleCancel}
-              className="px-4 py-2 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-            >
-              Cancel
-            </button>
+          <div className="sm:col-span-3">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Image (optional)</label>
+            <div className="mt-1 flex items-center gap-4">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageSelect}
+                ref={fileInputRef}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <ImageIcon className="h-5 w-5 text-gray-400" />
+                Choose Image
+              </button>
+              {imagePreview && (
+                <div className="relative">
+                  <img
+                    src={imagePreview}
+                    alt="Preview"
+                    className="h-20 w-20 object-cover rounded-lg"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleImageRemove}
+                    className="absolute -top-2 -right-2 p-1 bg-white rounded-full shadow-sm hover:bg-gray-100"
+                  >
+                    <X className="h-4 w-4 text-gray-500" />
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-        </form>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              handleSubmit(e);
+            }}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+          >
+            Save
+          </button>
+          <button
+            onClick={handleCancel}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     );
   }
@@ -174,6 +254,12 @@ export default function TodoItem({ todo, onToggle, onDelete, onEdit }: TodoItemP
             {todo.title}
           </span>
           <div className="flex items-center gap-2 flex-wrap">
+            {todo.imageUrl && (
+              <span className="rounded-full bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 flex items-center gap-1">
+                <ImageIcon className="h-4 w-4" />
+                Image
+              </span>
+            )}
             {todo.category && (
               <span className="rounded-full bg-indigo-50 px-4 py-1.5 text-sm font-medium text-indigo-700">
                 {todo.category}
@@ -193,15 +279,6 @@ export default function TodoItem({ todo, onToggle, onDelete, onEdit }: TodoItemP
             )}
           </div>
         </div>
-        {todo.imageUrl && (
-          <div className="mt-3">
-            <img
-              src={todo.imageUrl}
-              alt={todo.title}
-              className="max-h-48 rounded-lg object-cover"
-            />
-          </div>
-        )}
       </div>
       <div className="flex gap-2 opacity-0 transition-all group-hover:opacity-100">
         <button

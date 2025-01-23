@@ -12,6 +12,7 @@ type UpdateFields = {
   category?: Category;
   priority?: Priority;
   deadline?: string | null;
+  imageUrl?: string;
 };
 
 export async function PUT(
@@ -40,7 +41,7 @@ export async function PUT(
       }, { status: 400 });
     }
 
-    const { title, category, priority, deadline } = body;
+    const { title, category, priority, deadline, imageUrl } = body;
 
     // 3. Validate required fields
     if (!title?.trim()) {
@@ -102,6 +103,7 @@ export async function PUT(
     if (category) updates.category = category;
     if (priority) updates.priority = priority;
     if (deadline !== undefined) updates.deadline = deadlineTimestamp;
+    if (imageUrl !== undefined) updates.imageUrl = imageUrl;
 
     console.log('Updating todo with:', updates);
     await todoRef.update(updates);

@@ -72,8 +72,14 @@ export default function Home() {
 
   const uploadImage = async (file: File): Promise<string> => {
     const storageRef = ref(storage, `todo-images/${Date.now()}-${file.name}`);
-    await uploadBytes(storageRef, file);
-    return getDownloadURL(storageRef);
+    try {
+      await uploadBytes(storageRef, file);
+      const downloadUrl = await getDownloadURL(storageRef);
+      return downloadUrl;
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      throw new Error('Failed to upload image');
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -154,7 +160,6 @@ export default function Home() {
 
   const editTodo = async (id: string, updates: Partial<Todo>) => {
     try {
-      console.log('Sending edit request:', { id, updates });
       const response = await fetch(`/api/todos/${id}/edit`, {
         method: 'PUT',
         headers: {
@@ -163,21 +168,19 @@ export default function Home() {
         body: JSON.stringify(updates),
       });
 
-      const data = await response.json();
-      
       if (!response.ok) {
-        console.error('Server error:', { 
-          status: response.status, 
-          statusText: response.statusText,
-          data 
-        });
-        throw new Error(data.error || data.details || 'Failed to edit todo');
+        throw new Error('Failed to update todo');
       }
 
-      console.log('Edit successful:', data);
-      fetchTodos();
+      // Update the todo in the local state immediately
+      setTodos(prevTodos =>
+        prevTodos.map(todo =>
+          todo.id === id ? { ...todo, ...updates } : todo
+        )
+      );
+
     } catch (error) {
-      console.error('Error editing todo:', error instanceof Error ? error.message : 'Unknown error');
+      console.error('Error updating todo:', error);
     }
   };
 
@@ -262,27 +265,41 @@ export default function Home() {
 
           <form onSubmit={handleSubmit} className="mb-10">
             <div className="space-y-4">
-              <div className="flex gap-3">
-                <input
-                  type="text"
-                  value={newTodoTitle}
-                  onChange={(e) => setNewTodoTitle(e.target.value)}
-                  placeholder="Add a new task..."
-                  className="flex-1 rounded-xl border border-gray-200/50 bg-white/60 backdrop-blur-sm px-6 py-4 text-gray-900 shadow-sm focus:border-indigo-500/40 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
-                />
+              <div className="flex items-center gap-4 mb-6">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    value={newTodoTitle}
+                    onChange={(e) => setNewTodoTitle(e.target.value)}
+                    placeholder="Add a new task..."
+                    className="w-full pl-4 pr-24 py-3 rounded-xl border border-gray-200/50 bg-white/60 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder:text-gray-400"
+                  />
+                  <button
+                    type="submit"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!newTodoTitle.trim()}
+                  >
+                    Add
+                  </button>
+                </div>
                 <button
                   type="button"
                   onClick={() => setIsAddingTodo(!isAddingTodo)}
-                  className="inline-flex items-center gap-2 rounded-xl bg-white/60 backdrop-blur-sm px-6 py-4 font-medium text-gray-700 shadow-sm border border-gray-200/50 transition-all hover:bg-white/80 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  className={`px-4 py-3 rounded-xl border border-gray-200/50 bg-white/60 backdrop-blur-sm hover:bg-white/80 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                    isAddingTodo ? 'text-gray-700' : 'text-indigo-600'
+                  }`}
                 >
-                  {isAddingTodo ? 'Simple' : 'Advanced'}
-                </button>
-                <button
-                  type="submit"
-                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-4 font-medium text-white shadow-sm transition-all hover:bg-indigo-700 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                >
-                  <PlusCircle className="h-5 w-5" />
-                  Add Task
+                  {isAddingTodo ? (
+                    <>
+                      <Layout className="h-5 w-5" />
+                      <span className="sr-only">Simple Mode</span>
+                    </>
+                  ) : (
+                    <>
+                      <PlusCircle className="h-5 w-5" />
+                      <span className="sr-only">Advanced Mode</span>
+                    </>
+                  )}
                 </button>
               </div>
 
@@ -361,9 +378,18 @@ export default function Home() {
                       )}
                     </div>
                   </div>
+                  <div className="sm:col-span-3 flex justify-end">
+                    <button
+                      type="submit"
+                      className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      disabled={!newTodoTitle.trim()}
+                    >
+                      <PlusCircle className="h-5 w-5" />
+                      Add Task
+                    </button>
+                  </div>
                 </div>
               )}
-
               {loading ? (
                 <div className="flex justify-center items-center h-32">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
