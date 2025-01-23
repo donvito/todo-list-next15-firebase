@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { User, signOut as firebaseSignOut, onAuthStateChanged } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
+import Cookies from 'js-cookie';
 
 interface AuthContextType {
   user: User | null;
@@ -23,24 +24,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    console.log('Setting up auth state listener'); // Debug log
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      console.log('Auth state changed:', user ? 'logged in' : 'logged out'); // Debug log
+    console.log('Setting up auth state listener');
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      console.log('Auth state changed:', user ? 'logged in' : 'logged out');
+      
+      if (user) {
+        // Get the ID token
+        const token = await user.getIdToken();
+        // Set the session cookie
+        Cookies.set('session', token, { 
+          expires: 7, // 7 days
+          secure: true,
+          sameSite: 'strict'
+        });
+      } else {
+        // Remove the session cookie on logout
+        Cookies.remove('session');
+      }
+      
       setUser(user);
       setLoading(false);
     });
 
     return () => {
-      console.log('Cleaning up auth state listener'); // Debug log
+      console.log('Cleaning up auth state listener');
       unsubscribe();
     };
   }, []);
 
   const signOut = async () => {
     try {
-      console.log('Signing out...'); // Debug log
+      console.log('Signing out...');
       await firebaseSignOut(auth);
-      console.log('Successfully signed out'); // Debug log
+      // Remove the session cookie
+      Cookies.remove('session');
+      console.log('Successfully signed out');
       router.push('/login');
     } catch (error) {
       console.error('Error signing out:', error);
@@ -54,7 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signOut
   };
 
-  console.log('Auth context state:', { user: !!user, loading }); // Debug log
+  console.log('Auth context state:', { user: !!user, loading });
 
   return (
     <AuthContext.Provider value={value}>
