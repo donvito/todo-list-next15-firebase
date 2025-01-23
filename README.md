@@ -47,8 +47,8 @@ Before you begin, ensure you have:
 
 1. Clone the repository:
 ```bash
-git clone <your-repo-url>
-cd windsurf-nextjs-firebase
+git clone https://github.com/donvito/todo-list-next15-firebase.git
+cd todo-list-next15-firebase
 ```
 
 2. Install dependencies:
