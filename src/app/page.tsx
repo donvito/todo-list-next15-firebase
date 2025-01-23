@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Todo, Category, Priority } from '@/types/todo';
 import TodoItem from '@/components/TodoItem';
 import {
@@ -12,9 +12,12 @@ import {
   Search,
   Image as ImageIcon,
   X,
+  LogOut,
 } from "lucide-react";
 import { storage } from '@/lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { useAuth } from '@/contexts/AuthContext';
+import { useRouter } from 'next/navigation';
 
 export default function Home() {
   const [todos, setTodos] = useState<Todo[]>([]);
@@ -29,22 +32,59 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [selectedFilter, setSelectedFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const { user, signOut } = useAuth();
+  const router = useRouter();
+  const initialLoadDone = useRef(false);
 
-  useEffect(() => {
-    fetchTodos();
-  }, []);
-
-  const fetchTodos = async () => {
+  const fetchTodos = useCallback(async () => {
+    if (!user) return;
+    
     try {
-      const response = await fetch('/api/todos');
+      setLoading(true);
+      const token = await user.getIdToken();
+      
+      if (!token) {
+        console.error('No auth token available');
+        return;
+      }
+
+      const response = await fetch('/api/todos', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Failed to fetch todos:', errorData);
+        return;
+      }
+      
       const data = await response.json();
-      setTodos(data.todos);
-      setLoading(false);
+      setTodos(data.todos || []);
     } catch (error) {
       console.error('Error fetching todos:', error);
+    } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+
+    if (!initialLoadDone.current) {
+      initialLoadDone.current = true;
+      fetchTodos();
+    }
+  }, [user, router, fetchTodos]);
+
+  if (!user) {
+    return null;
+  }
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -92,10 +132,12 @@ export default function Home() {
         imageUrl = await uploadImage(selectedImage);
       }
 
+      const token = await user?.getIdToken();
       const response = await fetch('/api/todos', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
           title: newTodoTitle,
@@ -106,10 +148,9 @@ export default function Home() {
         }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to add todo');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to add todo');
       }
 
       setNewTodoTitle('');
@@ -127,10 +168,12 @@ export default function Home() {
 
   const toggleTodo = async (id: string) => {
     try {
+      const token = await user?.getIdToken();
       const response = await fetch(`/api/todos/${id}/toggle`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
       });
 
@@ -146,8 +189,12 @@ export default function Home() {
 
   const deleteTodo = async (id: string) => {
     try {
+      const token = await user?.getIdToken();
       const response = await fetch(`/api/todos/${id}`, {
         method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
 
       if (response.ok) {
@@ -216,10 +263,38 @@ export default function Home() {
     return matchesSearch && matchesFilter;
   });
 
+  const handleSignOut = async () => {
+    try {
+      setIsSigningOut(true);
+      await signOut();
+    } catch (error) {
+      console.error('Failed to sign out:', error);
+      alert('Failed to sign out. Please try again.');
+    } finally {
+      setIsSigningOut(false);
+    }
+  };
+
   return (
     <div className="flex h-screen w-full bg-gradient-to-br from-gray-50 to-gray-100">
       <aside className="w-72 bg-white/70 backdrop-blur-xl border-r border-gray-200/50 p-8">
-        <h2 className="text-2xl font-semibold text-gray-900 mb-8">Tasks</h2>
+        <div className="flex justify-between items-center mb-8">
+          <h2 className="text-2xl font-semibold text-gray-900">Tasks</h2>
+          {user && (
+            <button
+              onClick={handleSignOut}
+              disabled={isSigningOut}
+              className="p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-100/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Sign out"
+            >
+              {isSigningOut ? (
+                <div className="h-5 w-5 animate-spin rounded-full border-b-2 border-gray-600" />
+              ) : (
+                <LogOut className="h-5 w-5" />
+              )}
+            </button>
+          )}
+        </div>
         <div className="relative mb-8">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
